@@ -1,17 +1,60 @@
-% function run_reg_fourier_TFM
+function run_reg_fourier_TFM(filename, savename, domainname, num_images, crop_val, correct_drift)
+    arguments
+        % Name of file with displacement data
+        filename = 'beads_DIC_results_w0=16.mat';
+        % Name to save drift-corrected displacements and tractions
+        savename = 'tract_results.mat';
+        % Input name of image file containing the domain where cells are located.
+        % This script uses the mean displacements for pixels outside the domain to
+        % compute the rigid body drift; it shifts the displacements to correct for
+        % the drift. The domain should be an image that's the same size as the
+        % images used in the DIC with values of 1 inside the domain and values of
+        % zero outside the domain. To shift data using all displacement data,
+        % without excluding data points inside a domain, set domainname = [].
+        domainname = 'domain.tif';
+        % domainname = [];
+        % Number of time points to run. Set to empty aray [] to run all time
+        % points.
+        num_images = [];
+        % Optional: Crop displacement data from edges of image. This can be done if
+        % there's drift or other errors (e.g., due to low image quality,
+        % vignetting, etc.) at edges of images. To crop no data, set this parameter
+        % to 0.
+        crop_val = 10;
+        % Set to zero to skip drift-correction (if previously applied)
+        correct_drift = 0;
+
+    end
 %RUN_REGULAR_FOURIER_TFM.M
 %
 % Compute tractions from substrate displacements.
+%
+% INPUTS:
+% filename: Name of file with displacement data
+% savename: Name to save drift-corrected displacements and tractions
+% domainname: Input name of image file containing the domain where cells are located.
+% This script uses the mean displacements for pixels outside the domain to
+% compute the rigid body drift; it shifts the displacements to correct for
+% the drift. The domain should be an image that's the same size as the
+% images used in the DIC with values of 1 inside the domain and values of
+% zero outside the domain. To shift data using all displacement data,
+% without excluding data points inside a domain, set domainname = [].
+% 
+% num_images: Number of time points to run. Set to empty aray [] to run all time points.
+% crop_val (optional): Crop displacement data from edges of image. This can be done if
+% there's drift or other errors (e.g., due to low image quality,
+% vignetting, etc.) at edges of images. To crop no data, set this parameter to 0.
 % 
 % This script calls reg_fourier_TFM.m written by Yunfei Huang and Benedikt 
 % Sabass, and published as Sci. Rep., 2019, vol. 9, pp. 1?16. 
 % https://www.nature.com/articles/s41598-018-36896-x 
-
+%
 % Optional: It can be useful to run batch jobs by running this script as a
 % function.
 % 
 % This script written by Jacob Notbohm and Aashrith Saraswathibhatla
 % University of Wisconsin-Madison, 2015-2020
+% Edited by Frank Charbonier, Stanford University, 2023
 %
 % This script uses the following functions:
 %  Kabsch.m
@@ -21,34 +64,11 @@
 % This script requires a file called 'ExperimentalSettings.txt.' See readme
 % for more information.
 
-clear;
+% clear;
 close all;
 clc;
 
 %% --- USER INPUTS ---
-% Name of file with displacement data
-filename = 'fidic_results.mat';
-% Name to save drift-corrected displacements and tractions
-savename = 'tract_results.mat';
-% Input name of image file containing the domain where cells are located.
-% This script uses the mean displacements for pixels outside the domain to
-% compute the rigid body drift; it shifts the displacements to correct for
-% the drift. The domain should be an image that's the same size as the
-% images used in the DIC with values of 1 inside the domain and values of
-% zero outside the domain. To shift data using all displacement data,
-% without excluding data points inside a domain, set domainname = [].
-domainname = 'domain.tif';
-% domainname = [];
-% Number of time points to run. Set to empty aray [] to run all time
-% points.
-num_images = [];
-
-% Optional: Crop displacement data from edges of image. This can be done if
-% there's drift or other errors (e.g., due to low image quality,
-% vignetting, etc.) at edges of images. To crop no data, set this parameter
-% to 0.
-crop_val = 10;
-
 % Get some inputs from experimental settings file.
 fid = fopen('ExperimentalSettings.txt');
 txtcell = cell2mat(textscan(fid,'%f %*[^\n]')); % '%*[^\n]' skips the remainder of each line
@@ -122,72 +142,73 @@ for k = 1:num_images
     % Set nan values to zero.
     u_k(isnan(u_k))=0; v_k(isnan(v_k))=0;
     
-    % Correct for image rotation/translation
-    if ~isempty(domainname) % Use domain to compute image rotation and translation
-        % Get k-th domain
-        domain = imread(domainname,k);
-        % Downsample domain
-        % x and y grid points start at w0/2 and end w0/2 before the image ends.
-        % First crop off edges so that domain matches start and end points of x
-        % and y.
-        domain = domain(min(y(:)):max(y(:)),min(x(:)):max(x(:)));
-        domain = downsample(domain,d0); % downsample number of rows
-        domain = downsample(domain',d0)'; % downsample number of cols
-        % Set max value of domain to 1
-        domain = domain/max(domain(:));
-        % Get coords of locations outside domain
-        out_domain = logical(1-domain);
-        % Set boundaries of out_domain to zero
-        out_domain(1,:) = false(1,N);
-        out_domain(M,:) = false(1,N);
-        out_domain(:,1) = false(M,1);
-        out_domain(:,N) = false(M,1);
-        % Erode out_domain using disks. Units are d0-spaced pix, so use
-        % small disk radius
-        SE = strel('disk',3,0);
-        out_domain = imerode(out_domain,SE);
-        
-        % --- Correct for rigid body rotations ---
-        x_rot = x(out_domain);
-        y_rot = y(out_domain);
-        u_rot = u_k(out_domain);
-        v_rot = v_k(out_domain);
-        % Arrays to compare using the Kabsch algorithm
-        P = [x_rot' ; y_rot'];
-        Q = [(x_rot+u_rot)' ; (y_rot+v_rot)'];
-        % Get rotation using the Kabsch algorithm. U is the rotation matrix
-        % about the centroid given by p0 or q0.
-        [U, r, lrms, p0, q0] = Kabsch(P, Q);
-        % Unrotate all data
-        Q_all = [(x(:)+u_k(:))' ; (y(:)+v_k(:))'];
-        v1 = ones(1,size(Q_all,2)) ;     % row vector of ones
-        % Matrix U is the rotation matrix to go from P to Q. I actually
-        % want to go from Q to P so switch the sign on the off diagonal
-        % components.
-        U(1,2) = -U(1,2);
-        U(2,1) = -U(2,1);
-        Q_unrotated = U*(Q_all-q0*v1) + q0*v1;
-        % Displacements are rows of Q_unrotated minus the x or y
-        % coordinates
-        u_vector = Q_unrotated(1,:)' - x(:);
-        v_vector = Q_unrotated(2,:)' - y(:);
-        % Convert vector to matrix
-        u_k = reshape(u_vector,size(u_k));
-        v_k = reshape(v_vector,size(v_k));
-        
-        % --- Correct for rigid body translations ---
-        % Subtract off mean displacements where out_domain==1
-        u_k = u_k - mean(u_k(out_domain==1));
-        v_k = v_k - mean(v_k(out_domain==1));
-        
-    else % Use all data
-         % When location of domain isn't given, use median as an estimate 
-         % of the average rigid body translation. This isn't always a good
-         % idea; sometimes it will create systematic errors.
-        u_k = u_k - nanmedian(u_k(:));
-        v_k = v_k - nanmedian(v_k(:));
+    if correct_drift    
+        % Correct for image rotation/translation
+        if ~isempty(domainname) % Use domain to compute image rotation and translation
+            % Get k-th domain
+            domain = imread(domainname,k);
+            % Downsample domain
+            % x and y grid points start at w0/2 and end w0/2 before the image ends.
+            % First crop off edges so that domain matches start and end points of x
+            % and y.
+            domain = domain(min(y(:)):max(y(:)),min(x(:)):max(x(:)));
+            domain = downsample(domain,d0); % downsample number of rows
+            domain = downsample(domain',d0)'; % downsample number of cols
+            % Set max value of domain to 1
+            domain = domain/max(domain(:));
+            % Get coords of locations outside domain
+            out_domain = logical(1-domain);
+            % Set boundaries of out_domain to zero
+            out_domain(1,:) = false(1,N);
+            out_domain(M,:) = false(1,N);
+            out_domain(:,1) = false(M,1);
+            out_domain(:,N) = false(M,1);
+            % Erode out_domain using disks. Units are d0-spaced pix, so use
+            % small disk radius
+            SE = strel('disk',3,0);
+            out_domain = imerode(out_domain,SE);
+            
+            % --- Correct for rigid body rotations ---
+            x_rot = x(out_domain);
+            y_rot = y(out_domain);
+            u_rot = u_k(out_domain);
+            v_rot = v_k(out_domain);
+            % Arrays to compare using the Kabsch algorithm
+            P = [x_rot' ; y_rot'];
+            Q = [(x_rot+u_rot)' ; (y_rot+v_rot)'];
+            % Get rotation using the Kabsch algorithm. U is the rotation matrix
+            % about the centroid given by p0 or q0.
+            [U, r, lrms, p0, q0] = Kabsch(P, Q);
+            % Unrotate all data
+            Q_all = [(x(:)+u_k(:))' ; (y(:)+v_k(:))'];
+            v1 = ones(1,size(Q_all,2)) ;     % row vector of ones
+            % Matrix U is the rotation matrix to go from P to Q. I actually
+            % want to go from Q to P so switch the sign on the off diagonal
+            % components.
+            U(1,2) = -U(1,2);
+            U(2,1) = -U(2,1);
+            Q_unrotated = U*(Q_all-q0*v1) + q0*v1;
+            % Displacements are rows of Q_unrotated minus the x or y
+            % coordinates
+            u_vector = Q_unrotated(1,:)' - x(:);
+            v_vector = Q_unrotated(2,:)' - y(:);
+            % Convert vector to matrix
+            u_k = reshape(u_vector,size(u_k));
+            v_k = reshape(v_vector,size(v_k));
+            
+            % --- Correct for rigid body translations ---
+            % Subtract off mean displacements where out_domain==1
+            u_k = u_k - mean(u_k(out_domain==1));
+            v_k = v_k - mean(v_k(out_domain==1));
+            
+        else % Use all data
+             % When location of domain isn't given, use median as an estimate 
+             % of the average rigid body translation. This isn't always a good
+             % idea; sometimes it will create systematic errors.
+            u_k = u_k - nanmedian(u_k(:));
+            v_k = v_k - nanmedian(v_k(:));
+        end
     end
-    
     % If any data is large, it's likely to be an error, so interpolate its value
     umag = sqrt(u_k.^2 + v_k.^2);
     % For a normal random variable, there's a 3e-5 chance of getting
