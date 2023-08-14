@@ -1,30 +1,30 @@
-function run_reg_fourier_TFM(filename, savename, domainname, num_images, crop_val, correct_drift)
-    arguments
-        % Name of file with displacement data
-        filename = 'beads_DIC_results_w0=16.mat';
-        % Name to save drift-corrected displacements and tractions
-        savename = 'tract_results.mat';
-        % Input name of image file containing the domain where cells are located.
-        % This script uses the mean displacements for pixels outside the domain to
-        % compute the rigid body drift; it shifts the displacements to correct for
-        % the drift. The domain should be an image that's the same size as the
-        % images used in the DIC with values of 1 inside the domain and values of
-        % zero outside the domain. To shift data using all displacement data,
-        % without excluding data points inside a domain, set domainname = [].
-        domainname = 'domain.tif';
-        % domainname = [];
-        % Number of time points to run. Set to empty aray [] to run all time
-        % points.
-        num_images = [];
-        % Optional: Crop displacement data from edges of image. This can be done if
-        % there's drift or other errors (e.g., due to low image quality,
-        % vignetting, etc.) at edges of images. To crop no data, set this parameter
-        % to 0.
-        crop_val = 10;
-        % Set to zero to skip drift-correction (if previously applied)
-        correct_drift = 0;
-
-    end
+function run_reg_fourier_TFM(filename, savename, domainname, num_images, crop_val, correct_drift, pix_size, E, nu)
+    % arguments
+    %     % Name of file with displacement data
+    %     filename = 'beads_DIC_results_w0=16.mat';
+    %     % Name to save drift-corrected displacements and tractions
+    %     savename = 'tract_results.mat';
+    %     % Input name of image file containing the domain where cells are located.
+    %     % This script uses the mean displacements for pixels outside the domain to
+    %     % compute the rigid body drift; it shifts the displacements to correct for
+    %     % the drift. The domain should be an image that's the same size as the
+    %     % images used in the DIC with values of 1 inside the domain and values of
+    %     % zero outside the domain. To shift data using all displacement data,
+    %     % without excluding data points inside a domain, set domainname = [].
+    %     domainname = 'domain.tif';
+    %     % domainname = [];
+    %     % Number of time points to run. Set to empty aray [] to run all time
+    %     % points.
+    %     num_images = [];
+    %     % Optional: Crop displacement data from edges of image. This can be done if
+    %     % there's drift or other errors (e.g., due to low image quality,
+    %     % vignetting, etc.) at edges of images. To crop no data, set this parameter
+    %     % to 0.
+    %     crop_val = 10;
+    %     % Set to zero to skip drift-correction (if previously applied)
+    %     correct_drift = 0;
+    % 
+    % end
 %RUN_REGULAR_FOURIER_TFM.M
 %
 % Compute tractions from substrate displacements.
@@ -70,12 +70,12 @@ clc;
 
 %% --- USER INPUTS ---
 % Get some inputs from experimental settings file.
-fid = fopen('ExperimentalSettings.txt');
-txtcell = cell2mat(textscan(fid,'%f %*[^\n]')); % '%*[^\n]' skips the remainder of each line
-pix_size = txtcell(1)*1e6; % Pixel size, um
-E = txtcell(2);
-nu = txtcell(3);
-fclose(fid);
+% fid = fopen('ExperimentalSettings.txt');
+% txtcell = cell2mat(textscan(fid,'%f %*[^\n]')); % '%*[^\n]' skips the remainder of each line
+% pix_size = txtcell(1)*1e6; % Pixel size, um
+% E = txtcell(2);
+% nu = txtcell(3);
+% fclose(fid);
 
 
 %% --- LOAD DATA ---
